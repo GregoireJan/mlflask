@@ -1,45 +1,63 @@
 from sklearn.datasets import load_breast_cancer
 import pandas as pd
 import numpy as np
+import os.path
 
-from scipy import stats
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import train_test_split, cross_val_score, cross_validate
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from joblib import dump, load
 
+
+basepath = os.path.abspath(os.path.join(os.path.dirname(__file__),".."))
+modelpath = os.path.join(basepath, "models/RDFModel.joblib")
 
 class Modeler:
     def __init__(self):
+        # Loading breast cancer data from sklearn
         cancer = load_breast_cancer()
         data = np.c_[cancer.data, cancer.target]
         columns = np.append(cancer.feature_names, ["target"])
-        self.df = pd.DataFrame(data, columns=columns)
+        self.df_base = pd.DataFrame(data, columns=columns)
         #
-    def prepro(self):
-        col_std = np.std(self.df[self.df['target']==0])/np.std(self.df[self.df['target']==1]) > 2
-        dfstd = self.df[col_std.index[~col_std]]
-        dfstd_pm = pd.Series(data=list(stats.ttest_ind(dfstd[self.df['target']==0],dfstd[self.df['target']==1],equal_var=True).pvalue),index=list(dfstd.columns))
-        col_selec = list(dfstd_pm[dfstd_pm > 0.05].index)
-        #
+    def prepro(self,df,fit='yes'):
+        # Preprocessing: removing columns & scaling
+        col_selec = ['mean fractal dimension', 'texture error', 'smoothness error', 'symmetry error', 'fractal dimension error']
         robust_scaler = RobustScaler()
-        X = self.df.drop(columns=col_selec + ['target'])
-        Xtr = robust_scaler.fit_transform(X)
-        y = self.df.loc[:, 'target']
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(Xtr, y, test_size = 0.2, random_state = 42)
+        if fit == 'yes':
+            X = df.drop(columns=col_selec + ['target'])
+            Xtr = robust_scaler.fit_transform(X)
+            y = df.loc[:, 'target']
+            return Xtr, y
+        else:
+            X = df.drop(columns=col_selec)
+            Xtr = robust_scaler.fit_transform(X)
+            return Xtr
         #
     def fit(self):
+        Xtr, y =  Modeler().prepro(self.df_base)
+        # Splitting between train/test subsets
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(Xtr, y, test_size = 0.2, random_state = 42)
+        # Fitting Random Forest to train data
         self.model = RandomForestClassifier().fit(self.X_train, self.y_train)
+        accuracy = accuracy_score(self.y_test, self.model.predict(self.X_test))
+        if accuracy > 0.90:
+            dump(self.model, modelpath)
+        else:
+            raise Exception("The accuracy is metric is below the 90% threshold: ",accuracy)
         #
-    def predict(self, input):
-        prediction = self.model.predict([input])
+    def predict(self, df_pred):
+        # Predicting cancer outcome using the fitted model
+        Xtr =  Modeler().prepro(df_pred,'no')
+        rdf = load(modelpath)
+        prediction = rdf.predict(Xtr)
         return prediction[0]
 
 # m = Modeler()
-# m.prepro()
+
+# # if not os.path.isfile('models/RDFModel.joblib'):
+# # m.prepro()
 # m.fit()
-# pred = m.predict([1.799e+01, 1.038e+01, 1.228e+02, 1.001e+03, 1.184e-01, 2.776e-01,
-#        3.001e-01, 1.471e-01, 2.419e-01, 1.095e+00, 8.589e+00, 1.534e+02,
-#        4.904e-02, 5.373e-02, 1.587e-02, 2.538e+01, 1.733e+01, 1.846e+02,
-#        2.019e+03, 1.622e-01, 6.656e-01, 7.119e-01, 2.654e-01, 4.601e-01,
-#        1.189e-01])
+# pred = m.predict(309)
 # print(pred)
